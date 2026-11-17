@@ -1,82 +1,77 @@
 <policies>
   <inbound>
     <base />
-    <validate-azure-ad-token tenant-id="${tenant_id}" header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Missing or invalid Entra ID access token." output-token-variable-name="gateway-jwt">
+     <!-- On the client, Bearer token is generated and passed as x-api-key -->
+    <set-header name="Authorization" exists-action="skip">
+            <value>@("Bearer " + context.Request.Headers.GetValueOrDefault("x-api-key",""))</value>
+    </set-header>
+    <!-- 1. Validate the developer's Entra ID token -->
+    <validate-jwt header-name="Authorization"
+                  failed-validation-httpcode="401"
+                  failed-validation-error-message="Unauthorized: invalid or missing Entra token.">
+      <openid-config url="https://login.microsoftonline.com/${tenant_id}/v2.0/.well-known/openid-configuration" />
       <audiences>
         <audience>${gateway_client_id}</audience>
       </audiences>
-    </validate-azure-ad-token>
-    <choose>
-      <when condition='@(string.IsNullOrEmpty(((Jwt)context.Variables["gateway-jwt"]).Claims.GetValueOrDefault("oid", "")))'>
-        <return-response>
-          <set-status code="403" reason="Forbidden" />
-          <set-header name="Content-Type" exists-action="override">
-            <value>application/json</value>
-          </set-header>
-          <set-body>{"type":"error","error":{"message":"An Entra object identity is required.","type":"permission_error"}}</set-body>
-        </return-response>
-      </when>
-      <when condition='@(!((Jwt)context.Variables["gateway-jwt"]).Claims.ContainsKey("roles") || !((Jwt)context.Variables["gateway-jwt"]).Claims["roles"].Contains("${gateway_role}"))'>
-        <return-response>
-          <set-status code="403" reason="Forbidden" />
-          <set-header name="Content-Type" exists-action="override">
-            <value>application/json</value>
-          </set-header>
-          <set-body>{"type":"error","error":{"message":"The required Claude gateway app role is missing.","type":"permission_error"}}</set-body>
-        </return-response>
-      </when>
-    </choose>
-    <set-variable name="caller-id" value='@(((Jwt)context.Variables["gateway-jwt"]).Claims.GetValueOrDefault("tid", "") + ":" + ((Jwt)context.Variables["gateway-jwt"]).Claims.GetValueOrDefault("oid", ""))' />
-    <rate-limit-by-key calls="${requests_per_minute}" renewal-period="60" counter-key='@((string)context.Variables["caller-id"])' remaining-calls-header-name="x-ratelimit-remaining" />
-    <set-variable id="parse-model" name="requested-model" value='@{
-      var body = context.Request.Body.As&lt;JObject&gt;(preserveContent: true);
-      var model = body != null ? body["model"] : null;
-      return model != null &amp;&amp; model.Type == JTokenType.String ? (string)model : "";
-    }' />
-    <choose>
-      <when condition='@(!JArray.Parse(${allowed_models}).Values&lt;string&gt;().Contains((string)context.Variables["requested-model"]))'>
-        <return-response>
-          <set-status code="400" reason="Bad Request" />
-          <set-header name="Content-Type" exists-action="override">
-            <value>application/json</value>
-          </set-header>
-          <set-body>{"type":"error","error":{"message":"A valid JSON object with an approved model deployment name is required.","type":"invalid_request_error"}}</set-body>
-        </return-response>
-      </when>
-    </choose>
-    <choose>
-      <when condition='@(context.Operation.Id == "messages")'>
-        <llm-token-limit counter-key='@((string)context.Variables["caller-id"])' tokens-per-minute="${tokens_per_minute}" token-quota="${monthly_token_quota}" token-quota-period="Monthly" estimate-prompt-tokens="true" remaining-tokens-header-name="x-tokens-remaining" remaining-quota-tokens-header-name="x-token-quota-remaining" />
+      <issuers>
+        <issuer>https://login.microsoftonline.com/${tenant_id}/v2.0</issuer>
+        <issuer>https://sts.windows.net/${tenant_id}/</issuer>
+      </issuers>
+      <required-claims>
+        <claim name="roles" match="any">
+          <value>Claude.Standard</value>
+          <value>Claude.Premium</value>
+        </claim>
+      </required-claims>
+    </validate-jwt>
+        <!-- 2. Per-developer key from the stable object id -->
+        <set-variable name="callerId" value="@{
+        var jwt = context.Request.Headers
+            .GetValueOrDefault("Authorization","").Split(' ').Last().AsJwt();
+        return jwt.Claims.GetValueOrDefault("oid", "unknown");
+    }" />
+        <!-- 3. Tier from app role -->
+        <set-variable name="tier" value="@{
+        var jwt = context.Request.Headers
+            .GetValueOrDefault("Authorization","").Split(' ').Last().AsJwt();
+        return jwt.Claims.GetValueOrDefault("roles","").Contains("Claude.Premium") ? "premium" : "standard";
+    }" />
+        <set-variable name="modelName" value="@{
+      var body = context.Request.Body.As<JObject>(preserveContent: true);
+      return body?["model"]?.ToString() ?? "unknown";
+    }" />
+        <!-- 4. Token-based throttle per developer (controls LLM cost) -->
+        <choose>
+            <when condition="@(((string)context.Variables["tier"]) == "premium")">
+                <llm-token-limit counter-key="@((string)context.Variables["callerId"])" tokens-per-minute="200000" estimate-prompt-tokens="true" remaining-tokens-header-name="x-tokens-remaining" token-quota="20000000" token-quota-period="Monthly" />
+                <rate-limit-by-key calls="300" renewal-period="60" counter-key="@((string)context.Variables["callerId"])" retry-after-header-name="retry-after" remaining-calls-header-name="x-ratelimit-remaining" />
+            </when>
+            <otherwise>
+                <llm-token-limit counter-key="@((string)context.Variables["callerId"])" tokens-per-minute="50000" estimate-prompt-tokens="true" remaining-tokens-header-name="x-tokens-remaining" token-quota="5000000" token-quota-period="Monthly" />
+                <rate-limit-by-key calls="100" renewal-period="60" counter-key="@((string)context.Variables["callerId"])" retry-after-header-name="retry-after" remaining-calls-header-name="x-ratelimit-remaining" />
+            </otherwise>
+        </choose>
+         <!-- 5. Request-rate throttle per developer -->
         <llm-emit-token-metric namespace="claudecode">
-          <dimension name="UserId" value='@(((Jwt)context.Variables["gateway-jwt"]).Claims.GetValueOrDefault("oid", ""))' />
-          <dimension name="Model" value='@((string)context.Variables["requested-model"])' />
+            <dimension name="UserId" value="@((string)context.Variables["callerId"])" />
+            <dimension name="Tier" value="@((string)context.Variables["tier"])" />
+            <dimension name="Model" value="@((string)context.Variables["modelName"])" />
         </llm-emit-token-metric>
-      </when>
-    </choose>
-    <set-header name="api-key" exists-action="delete" />
-    <set-header name="x-api-key" exists-action="delete" />
-    <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
-    <set-backend-service backend-id="${backend_id}" />
-    <authentication-managed-identity resource="https://cognitiveservices.azure.com" ignore-error="false" />
-  </inbound>
-  <backend>
-    <forward-request timeout="240" buffer-response="false" fail-on-error-status-code="false" />
-  </backend>
-  <outbound>
-    <base />
-  </outbound>
-  <on-error>
-    <base />
-    <choose>
-      <when condition='@(context.LastError.PolicyId == "parse-model")'>
-        <return-response>
-          <set-status code="400" reason="Bad Request" />
-          <set-header name="Content-Type" exists-action="override">
-            <value>application/json</value>
-          </set-header>
-          <set-body>{"type":"error","error":{"message":"The request body must be a valid JSON object.","type":"invalid_request_error"}}</set-body>
-        </return-response>
-      </when>
-    </choose>
-  </on-error>
+        <!-- 6 (Option B). Authenticate to Foundry with APIM's managed identity -->
+        <!-- Replace the developer's token with an MI token scoped to AI Services -->
+        <authentication-managed-identity resource="https://cognitiveservices.azure.com" output-token-variable-name="msi-token" />
+        <set-header name="Authorization" exists-action="override">
+            <value>@("Bearer " + (string)context.Variables["msi-token"])</value>
+        </set-header>
+        <set-backend-service backend-id="foundry-claude" />
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
 </policies>

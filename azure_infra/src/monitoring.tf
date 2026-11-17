@@ -184,5 +184,5 @@ resource "azapi_update_resource" "azuremonitor" {
     }
   }
 
-  depends_on = [azurerm_monitor_diagnostic_setting.apim]
+  depends_on = [azurerm_monitor_diagnostic_setting.apim_diagnostics]
 }

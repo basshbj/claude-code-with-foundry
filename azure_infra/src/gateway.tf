@@ -21,12 +21,12 @@ resource "azurerm_api_management_api" "apim_api" {
   path                  = "anthropic"
   protocols             = ["https"]
   subscription_required = false
-  service_url           = "https://${azurerm_cognitive_account.this.custom_subdomain_name}.services.ai.azure.com/anthropic"
+  service_url           = "https://${azurerm_cognitive_account.foundry.custom_subdomain_name}.services.ai.azure.com/anthropic"
 
   lifecycle {
     precondition {
       condition     = length(var.allowed_user_emails) + length(var.allowed_group_names) > 0
-      error_message = "Authorize at least one user email, security group name, or principal object ID."
+      error_message = "Authorize at least one user email or security group name"
     }
   }
 }
@@ -41,10 +41,6 @@ resource "azurerm_api_management_api_operation" "apim_api_operation" {
     count-tokens = {
       path   = "/v1/messages/count_tokens"
       method = "POST"
-    }
-    models = {
-      path   = "/v1/models"
-      method = "GET"
     }
   }
 
@@ -64,18 +60,18 @@ resource "azurerm_api_management_api_policy" "apim_policy" {
   resource_group_name = azurerm_resource_group.rg.name
   xml_content = templatefile("${path.module}/policies/claude.xml.tftpl", {
     tenant_id           = var.tenant_id
-    gateway_client_id   = azuread_application.gateway.client_id
+    gateway_client_id   = azuread_application.app_gateway.client_id
     gateway_role        = local.gateway_role_value
     allowed_models      = jsonencode(jsonencode(sort(tolist(local.model_names))))
     requests_per_minute = var.requests_per_minute
     tokens_per_minute   = var.tokens_per_minute
     monthly_token_quota = var.monthly_token_quota
-    backend_id          = azurerm_api_management_backend.claude.name
+    backend_id          = azurerm_api_management_backend.apim_backend.name
   })
 
   depends_on = [
     azuread_application_identifier_uri.gateway,
-    azuread_application_pre_authorized.azure_cli,
+    azuread_application_pre_authorized.app_auth_azure_cli,
     azuread_app_role_assignment.gateway,
     azurerm_api_management_api_operation.apim_api_operation,
     azurerm_role_assignment.apim_inference,

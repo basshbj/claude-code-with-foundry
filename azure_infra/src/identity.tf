@@ -15,10 +15,6 @@ data "azuread_group" "allowed" {
   security_enabled = true
 }
 
-data "azuread_application" "azure_cli" {
-  display_name = "Microsoft Azure CLI"
-}
-
 locals {
   gateway_scope_id   = uuidv5("dns", "${var.tenant_id}.${var.name_prefix}.gateway.access_as_user")
   gateway_role_id    = uuidv5("dns", "${var.tenant_id}.${var.name_prefix}.gateway.Claude.Standard")
@@ -79,7 +75,7 @@ resource "azuread_service_principal" "gateway" {
 
 resource "azuread_application_pre_authorized" "app_auth_azure_cli" {
   application_id = azuread_application.app_gateway.id
-  authorized_client_id = data.azuread_application.azure_cli.client_id
+  authorized_client_id = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
   permission_ids       = [local.gateway_scope_id]
 }
 

@@ -101,10 +101,9 @@ mock_provider "azuread" {
 mock_provider "azapi" {}
 
 variables {
-  resource_group_name       = null
   tags                      = {}
   apim_sku_name             = "StandardV2_1"
-  allowed_user_emails       = []
+  allowed_user_emails       = ["developer@example.com"]
   allowed_group_names       = []
   requests_per_minute       = 60
   tokens_per_minute         = 50000
@@ -121,9 +120,6 @@ variables {
   claude_organization_name  = "Test organization"
   claude_country_code       = "US"
   claude_industry           = "technology"
-  allowed_principal_object_ids = [
-    "88888888-8888-8888-8888-888888888888",
-  ]
   models = [
     "claude-opus-4-8",
     "claude-opus-5-5",
@@ -140,27 +136,27 @@ run "public_foundry_project_and_claude_models" {
 
   assert {
     condition = (
-      azurerm_resource_group.this.name == "claude-test-rg" &&
-      azurerm_api_management.this.sku_name == "StandardV2_1" &&
-      azurerm_api_management.this.virtual_network_type == "None" &&
-      azurerm_api_management.this.public_network_access_enabled &&
-      !azurerm_cognitive_account.this.local_auth_enabled &&
-      azurerm_cognitive_account.this.kind == "AIServices" &&
-      azurerm_cognitive_account.this.project_management_enabled &&
-      azurerm_cognitive_account.this.public_network_access_enabled &&
-      one(azurerm_cognitive_account.this.network_acls).default_action == "Allow" &&
-      one(azurerm_cognitive_account.this.network_acls).bypass == "None"
+      azurerm_resource_group.rg.name == "claude-test-rg" &&
+      azurerm_api_management.apim.sku_name == "StandardV2_1" &&
+      azurerm_api_management.apim.virtual_network_type == "None" &&
+      azurerm_api_management.apim.public_network_access_enabled &&
+      !azurerm_cognitive_account.foundry.local_auth_enabled &&
+      azurerm_cognitive_account.foundry.kind == "AIServices" &&
+      azurerm_cognitive_account.foundry.project_management_enabled &&
+      azurerm_cognitive_account.foundry.public_network_access_enabled &&
+      one(azurerm_cognitive_account.foundry.network_acls).default_action == "Allow" &&
+      one(azurerm_cognitive_account.foundry.network_acls).bypass == "None"
     )
     error_message = "Preserve public Standard v2/Foundry networking and disable backend key authentication."
   }
 
   assert {
     condition = (
-      azurerm_cognitive_account_project.this.cognitive_account_id == azurerm_cognitive_account.this.id &&
-      azurerm_cognitive_account_project.this.name == "claude-test-project" &&
-      azurerm_cognitive_account_project.this.identity[0].type == "SystemAssigned" &&
-      azurerm_cognitive_account.this.identity[0].type == "SystemAssigned" &&
-      output.foundry_project_id == azurerm_cognitive_account_project.this.id
+      azurerm_cognitive_account_project.foundry_prj.cognitive_account_id == azurerm_cognitive_account.foundry.id &&
+      azurerm_cognitive_account_project.foundry_prj.name == "claude-test-project" &&
+      azurerm_cognitive_account_project.foundry_prj.identity[0].type == "SystemAssigned" &&
+      azurerm_cognitive_account.foundry.identity[0].type == "SystemAssigned" &&
+      output.foundry_project_id == azurerm_cognitive_account_project.foundry_prj.id
     )
     error_message = "Create a child Foundry project with its own managed identity, not just a project-enabled account."
   }
@@ -172,7 +168,7 @@ run "public_foundry_project_and_claude_models" {
         "claude-opus-5", "claude-sonnet-5-5", "claude-haiku-5-5",
       ]) &&
       alltrue([for name, deployment in azapi_resource.claude :
-        deployment.parent_id == azurerm_cognitive_account.this.id &&
+        deployment.parent_id == azurerm_cognitive_account.foundry.id &&
         deployment.body.properties.model.format == "Anthropic" &&
         deployment.body.properties.model.name == name &&
         deployment.body.properties.model.version == "2" &&
@@ -181,7 +177,7 @@ run "public_foundry_project_and_claude_models" {
         deployment.body.properties.modelProviderData.organizationName == "Test organization" &&
         deployment.body.properties.modelProviderData.countryCode == "US" &&
         deployment.body.properties.modelProviderData.industry == "technology" &&
-        deployment.locks == tolist([azurerm_cognitive_account.this.id])
+        deployment.locks == tolist([azurerm_cognitive_account.foundry.id])
       ])
     )
     error_message = "Deploy all seven Claude models pinned to Hosted on Azure, with Marketplace attestations and serialized account updates."
@@ -189,10 +185,10 @@ run "public_foundry_project_and_claude_models" {
 
   assert {
     condition = (
-      azurerm_role_assignment.foundry_user["88888888-8888-8888-8888-888888888888"].scope == azurerm_cognitive_account.this.id &&
-      endswith(azurerm_role_assignment.foundry_user["88888888-8888-8888-8888-888888888888"].role_definition_id, "/53ca6127-db72-4b80-b1b0-d745d6d5456d") &&
-      azurerm_role_assignment.cognitive_services_user["88888888-8888-8888-8888-888888888888"].scope == azurerm_cognitive_account.this.id &&
-      azurerm_role_assignment.cognitive_services_user["88888888-8888-8888-8888-888888888888"].role_definition_name == "Cognitive Services User"
+      azurerm_role_assignment.foundry_user["99999999-9999-9999-9999-999999999999"].scope == azurerm_cognitive_account.foundry.id &&
+      azurerm_role_assignment.foundry_user["99999999-9999-9999-9999-999999999999"].role_definition_name == "Foundry User" &&
+      azurerm_role_assignment.cognitive_services_user["99999999-9999-9999-9999-999999999999"].scope == azurerm_cognitive_account.foundry.id &&
+      azurerm_role_assignment.cognitive_services_user["99999999-9999-9999-9999-999999999999"].role_definition_name == "Cognitive Services User"
     )
     error_message = "Grant configured principals Foundry User and Cognitive Services User on the account."
   }
@@ -203,48 +199,52 @@ run "entra_messages_and_token_counting" {
 
   assert {
     condition = (
-      !azurerm_api_management_api.claude.subscription_required &&
-      azurerm_api_management_api.claude.path == "anthropic" &&
-      azurerm_api_management_api.claude.service_url == "https://claude-test-foundry.services.ai.azure.com/anthropic" &&
-      azurerm_api_management_backend.claude.url == azurerm_api_management_api.claude.service_url &&
-      azurerm_api_management_backend.claude.protocol == "http" &&
-      azurerm_api_management_api_operation.claude["messages"].url_template == "/v1/messages" &&
-      azurerm_api_management_api_operation.claude["count-tokens"].url_template == "/v1/messages/count_tokens" &&
-      alltrue([for operation in azurerm_api_management_api_operation.claude : operation.method == "POST"])
+      !azurerm_api_management_api.apim_api.subscription_required &&
+      azurerm_api_management_api.apim_api.path == "anthropic" &&
+      azurerm_api_management_api.apim_api.service_url == "https://claude-test-foundry.services.ai.azure.com/anthropic" &&
+      azurerm_api_management_backend.apim_backend.url == azurerm_api_management_api.apim_api.service_url &&
+      azurerm_api_management_backend.apim_backend.protocol == "http" &&
+      toset(keys(azurerm_api_management_api_operation.apim_api_operation)) == toset(["messages", "count-tokens", "models"]) &&
+      azurerm_api_management_api_operation.apim_api_operation["messages"].url_template == "/v1/messages" &&
+      azurerm_api_management_api_operation.apim_api_operation["messages"].method == "POST" &&
+      azurerm_api_management_api_operation.apim_api_operation["count-tokens"].url_template == "/v1/messages/count_tokens" &&
+      azurerm_api_management_api_operation.apim_api_operation["count-tokens"].method == "POST" &&
+      azurerm_api_management_api_operation.apim_api_operation["models"].url_template == "/v1/models" &&
+      azurerm_api_management_api_operation.apim_api_operation["models"].method == "GET"
     )
-    error_message = "Expose the native Anthropic Messages and token-counting API paths without subscription keys."
+    error_message = "Expose the native Anthropic Messages, token-counting, and model-listing API paths with their expected methods and without subscription keys."
   }
 
   assert {
     condition = (
-      strcontains(azurerm_api_management_api_policy.claude.xml_content, "validate-azure-ad-token tenant-id=\"33333333-3333-3333-3333-333333333333\"") &&
-      strcontains(azurerm_api_management_api_policy.claude.xml_content, "<audience>12121212-1212-1212-1212-121212121212</audience>") &&
-      !strcontains(azurerm_api_management_api_policy.claude.xml_content, "<audience>https://ai.azure.com") &&
-      !strcontains(azurerm_api_management_api_policy.claude.xml_content, "<audience>https://cognitiveservices.azure.com") &&
-      strcontains(azurerm_api_management_api_policy.claude.xml_content, "<authentication-managed-identity resource=\"https://cognitiveservices.azure.com\" ignore-error=\"false\" />") &&
-      strcontains(azurerm_api_management_api_policy.claude.xml_content, "<set-backend-service backend-id=\"foundry-claude\"") &&
-      !strcontains(azurerm_api_management_api_policy.claude.xml_content, "<set-header name=\"Authorization\"") &&
-      !strcontains(azurerm_api_management_api_policy.claude.xml_content, "Codex.Access") &&
-      !strcontains(azurerm_api_management_api_policy.claude.xml_content, "<client-application-ids>") &&
-      strcontains(azurerm_api_management_api_policy.claude.xml_content, "buffer-response=\"false\"") &&
-      strcontains(azurerm_api_management_api_policy.claude.xml_content, "preserveContent: true") &&
-      strcontains(azurerm_api_management_api_policy.claude.xml_content, "<set-header name=\"x-api-key\" exists-action=\"delete\"") &&
-      strcontains(azurerm_api_management_api_policy.claude.xml_content, "string.IsNullOrEmpty") &&
-      strcontains(azurerm_api_management_api_policy.claude.xml_content, "rate-limit-by-key") &&
-      !strcontains(azurerm_api_management_api_policy.claude.xml_content, "exists-action=\"skip\"") &&
-      !strcontains(azurerm_api_management_api_policy.claude.xml_content, "{{foundry-api-key}}") &&
-      strcontains(azurerm_api_management_api_policy.claude.xml_content, "Claims[\"roles\"].Contains(\"Claude.Standard\")") &&
-      can(regex("(?s)<validate-azure-ad-token.*required Claude gateway app role is missing.*<authentication-managed-identity", azurerm_api_management_api_policy.claude.xml_content))
+      strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "validate-azure-ad-token tenant-id=\"33333333-3333-3333-3333-333333333333\"") &&
+      strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "<audience>12121212-1212-1212-1212-121212121212</audience>") &&
+      !strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "<audience>https://ai.azure.com") &&
+      !strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "<audience>https://cognitiveservices.azure.com") &&
+      strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "<authentication-managed-identity resource=\"https://ai.azure.com\" ignore-error=\"false\" />") &&
+      strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "<set-backend-service backend-id=\"foundry-claude\"") &&
+      !strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "<set-header name=\"Authorization\"") &&
+      !strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "Codex.Access") &&
+      !strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "<client-application-ids>") &&
+      strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "buffer-response=\"false\"") &&
+      strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "preserveContent: true") &&
+      strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "<set-header name=\"x-api-key\" exists-action=\"delete\"") &&
+      strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "string.IsNullOrEmpty") &&
+      strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "rate-limit-by-key") &&
+      !strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "exists-action=\"skip\"") &&
+      !strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "{{foundry-api-key}}") &&
+      strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "Claims[\"roles\"].Contains(\"Claude.Standard\")") &&
+      can(regex("(?s)<validate-azure-ad-token.*required Claude gateway app role is missing.*<authentication-managed-identity", azurerm_api_management_api_policy.apim_policy.xml_content))
     )
     error_message = "Validate and authorize the caller before replacing its token with APIM's managed identity; never use key auth or buffer streams."
   }
 
   assert {
     condition = (
-      azurerm_role_assignment.apim_inference.scope == azurerm_cognitive_account.this.id &&
+      azurerm_role_assignment.apim_inference.scope == azurerm_cognitive_account.foundry.id &&
       azurerm_role_assignment.apim_inference.role_definition_name == "Cognitive Services User" &&
       azurerm_role_assignment.apim_inference.principal_type == "ServicePrincipal" &&
-      azurerm_role_assignment.apim_inference.principal_id == azurerm_api_management.this.identity[0].principal_id
+      azurerm_role_assignment.apim_inference.principal_id == azurerm_api_management.apim.identity[0].principal_id
     )
     error_message = "The backend identity needs Foundry data-plane access, but arbitrary tenant users must not gain access through it."
   }
@@ -254,7 +254,7 @@ run "entra_messages_and_token_counting" {
       output.claude_code_connection.ANTHROPIC_BASE_URL == "https://test-apim.azure-api.net/anthropic" &&
       output.claude_code_connection.CLAUDE_CODE_USE_FOUNDRY == "0" &&
       output.claude_code_connection.CLAUDE_GATEWAY_SCOPE == "api://12121212-1212-1212-1212-121212121212/.default" &&
-      output.foundry_anthropic_base_url == azurerm_api_management_api.claude.service_url
+      output.foundry_anthropic_base_url == azurerm_api_management_api.apim_api.service_url
     )
     error_message = "Claude Code handoff must use APIM's Anthropic base URL exactly once."
   }
@@ -265,17 +265,17 @@ run "telemetry_is_connected_and_unsampled" {
 
   assert {
     condition = (
-      azurerm_application_insights.this.workspace_id == azurerm_log_analytics_workspace.this.id &&
-      azurerm_application_insights.this.sampling_percentage == 100 &&
-      !azurerm_application_insights.this.local_authentication_enabled &&
-      azapi_resource.project_insights.parent_id == azurerm_cognitive_account_project.this.id &&
+      azurerm_application_insights.app_insights.workspace_id == azurerm_log_analytics_workspace.logana.id &&
+      azurerm_application_insights.app_insights.sampling_percentage == 100 &&
+      !azurerm_application_insights.app_insights.local_authentication_enabled &&
+      azapi_resource.project_insights.parent_id == azurerm_cognitive_account_project.foundry_prj.id &&
       azapi_resource.project_insights.body.properties.category == "AppInsights" &&
       azapi_resource.project_insights.body.properties.authType == "ProjectManagedIdentity" &&
-      azapi_resource.project_insights.body.properties.target == azurerm_application_insights.this.id &&
-      azapi_resource.project_insights.body.properties.metadata.ApplicationInsightsConnectionString == azurerm_application_insights.this.connection_string &&
+      azapi_resource.project_insights.body.properties.target == azurerm_application_insights.app_insights.id &&
+      azapi_resource.project_insights.body.properties.metadata.ApplicationInsightsConnectionString == azurerm_application_insights.app_insights.connection_string &&
       azurerm_api_management_logger.insights.application_insights[0].identity_client_id == "SystemAssigned" &&
-      azurerm_api_management_logger.insights.application_insights[0].connection_string == azurerm_application_insights.this.connection_string &&
-      azapi_update_resource.insights_metric_dimensions.resource_id == azurerm_application_insights.this.id &&
+      azurerm_api_management_logger.insights.application_insights[0].connection_string == azurerm_application_insights.app_insights.connection_string &&
+      azapi_update_resource.insights_metric_dimensions.resource_id == azurerm_application_insights.app_insights.id &&
       azapi_update_resource.insights_metric_dimensions.body.properties.CustomMetricsOptedInType == "WithDimensions" &&
       azapi_update_resource.apim_insights_metrics.resource_id == azurerm_api_management_diagnostic.all_apis["applicationinsights"].id &&
       azapi_update_resource.apim_insights_metrics.body.properties.metrics
@@ -285,28 +285,28 @@ run "telemetry_is_connected_and_unsampled" {
 
   assert {
     condition = (
-      azurerm_role_assignment.telemetry_publisher["apim"].principal_id == azurerm_api_management.this.identity[0].principal_id &&
-      azurerm_role_assignment.telemetry_publisher["project"].principal_id == azurerm_cognitive_account_project.this.identity[0].principal_id &&
-      azurerm_role_assignment.telemetry_publisher["foundry"].principal_id == azurerm_cognitive_account.this.identity[0].principal_id &&
+      azurerm_role_assignment.telemetry_publisher["apim"].principal_id == azurerm_api_management.apim.identity[0].principal_id &&
+      azurerm_role_assignment.telemetry_publisher["project"].principal_id == azurerm_cognitive_account_project.foundry_prj.identity[0].principal_id &&
+      azurerm_role_assignment.telemetry_publisher["foundry"].principal_id == azurerm_cognitive_account.foundry.identity[0].principal_id &&
       alltrue([for assignment in azurerm_role_assignment.telemetry_publisher :
-        assignment.scope == azurerm_application_insights.this.id &&
+        assignment.scope == azurerm_application_insights.app_insights.id &&
         assignment.role_definition_name == "Monitoring Metrics Publisher"
       ]) &&
-      azurerm_role_assignment.logs_reader["88888888-8888-8888-8888-888888888888"].scope == azurerm_log_analytics_workspace.this.id &&
-      azurerm_role_assignment.insights_reader["88888888-8888-8888-8888-888888888888"].scope == azurerm_application_insights.this.id
+      azurerm_role_assignment.logs_reader["99999999-9999-9999-9999-999999999999"].scope == azurerm_log_analytics_workspace.logana.id &&
+      azurerm_role_assignment.insights_reader["99999999-9999-9999-9999-999999999999"].scope == azurerm_application_insights.app_insights.id
     )
     error_message = "Telemetry identities need scoped publishing permissions and configured users/groups need log read access."
   }
 
   assert {
     condition = (
-      one(azurerm_monitor_diagnostic_setting.apim.enabled_log).category_group == "allLogs" &&
-      one(azurerm_monitor_diagnostic_setting.foundry.enabled_log).category_group == "allLogs" &&
-      one(azurerm_monitor_diagnostic_setting.apim.enabled_metric).category == "AllMetrics" &&
-      one(azurerm_monitor_diagnostic_setting.foundry.enabled_metric).category == "AllMetrics" &&
-      azurerm_monitor_diagnostic_setting.apim.log_analytics_destination_type == "Dedicated" &&
-      azurerm_monitor_diagnostic_setting.apim.log_analytics_workspace_id == azurerm_log_analytics_workspace.this.id &&
-      azurerm_monitor_diagnostic_setting.foundry.log_analytics_workspace_id == azurerm_log_analytics_workspace.this.id &&
+      one(azurerm_monitor_diagnostic_setting.apim_diagnostics.enabled_log).category_group == "allLogs" &&
+      one(azurerm_monitor_diagnostic_setting.foundry_diagnostics.enabled_log).category_group == "allLogs" &&
+      one(azurerm_monitor_diagnostic_setting.apim_diagnostics.enabled_metric).category == "AllMetrics" &&
+      one(azurerm_monitor_diagnostic_setting.foundry_diagnostics.enabled_metric).category == "AllMetrics" &&
+      azurerm_monitor_diagnostic_setting.apim_diagnostics.log_analytics_destination_type == "Dedicated" &&
+      azurerm_monitor_diagnostic_setting.apim_diagnostics.log_analytics_workspace_id == azurerm_log_analytics_workspace.logana.id &&
+      azurerm_monitor_diagnostic_setting.foundry_diagnostics.log_analytics_workspace_id == azurerm_log_analytics_workspace.logana.id &&
       toset(keys(azurerm_api_management_diagnostic.all_apis)) == toset(["applicationinsights"]) &&
       azurerm_api_management_diagnostic.all_apis["applicationinsights"].api_management_logger_id == azurerm_api_management_logger.insights.id
     )
@@ -339,8 +339,8 @@ run "update_builtin_azuremonitor_diagnostic" {
     condition = (
       !contains(keys(azurerm_api_management_diagnostic.all_apis), "azuremonitor") &&
       azapi_update_resource.azuremonitor.type == "Microsoft.ApiManagement/service/diagnostics@2024-05-01" &&
-      azapi_update_resource.azuremonitor.resource_id == "${azurerm_api_management.this.id}/diagnostics/azuremonitor" &&
-      azapi_update_resource.azuremonitor.body.properties.loggerId == "${azurerm_api_management.this.id}/loggers/azuremonitor"
+      azapi_update_resource.azuremonitor.resource_id == "${azurerm_api_management.apim.id}/diagnostics/azuremonitor" &&
+      azapi_update_resource.azuremonitor.body.properties.loggerId == "${azurerm_api_management.apim.id}/loggers/azuremonitor"
     )
     error_message = "Update APIM's pre-existing Azure Monitor diagnostic instead of creating a conflicting AzureRM resource."
   }
@@ -390,7 +390,7 @@ run "normalized_models_and_capacity" {
       azapi_resource.claude["claude-opus-5-5"].body.sku.name == "DataZoneStandard" &&
       azapi_resource.claude["claude-haiku-4-5"].body.sku.capacity == 3 &&
       output.model_deployment_names == tolist(["claude-haiku-4-5", "claude-opus-5-5"]) &&
-      strcontains(azurerm_api_management_api_policy.claude.xml_content, jsonencode(jsonencode(["claude-haiku-4-5", "claude-opus-5-5"])))
+      strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, jsonencode(jsonencode(["claude-haiku-4-5", "claude-opus-5-5"])))
     )
     error_message = "Normalize Claude deployment names and keep the gateway allowlist, capacity, and plan consistent."
   }
@@ -400,9 +400,8 @@ run "authorize_by_email_and_group_name" {
   command = apply
 
   variables {
-    allowed_principal_object_ids = []
-    allowed_user_emails          = [" Developer@Example.com "]
-    allowed_group_names          = [" Claude Developers "]
+    allowed_user_emails = [" Developer@Example.com "]
+    allowed_group_names = [" Claude Developers "]
   }
 
   assert {
@@ -426,31 +425,31 @@ run "gateway_app_registration_and_assignments" {
 
   assert {
     condition = (
-      azuread_application.gateway.display_name == "claude-test-gateway" &&
-      azuread_application.gateway.sign_in_audience == "AzureADMyOrg" &&
-      one(azuread_application.gateway.api).requested_access_token_version == 2 &&
-      one(one(azuread_application.gateway.api).oauth2_permission_scope).value == "access_as_user" &&
-      one(one(azuread_application.gateway.api).oauth2_permission_scope).type == "User" &&
-      one(one(azuread_application.gateway.api).oauth2_permission_scope).enabled &&
-      length(azuread_application.gateway.password) == 0 &&
-      azuread_application_identifier_uri.gateway.identifier_uri == "api://${azuread_application.gateway.client_id}" &&
-      azuread_application_identifier_uri.gateway.application_id == azuread_application.gateway.id &&
-      azuread_application_pre_authorized.azure_cli.application_id == azuread_application.gateway.id &&
-      azuread_application_pre_authorized.azure_cli.permission_ids == toset([one(one(azuread_application.gateway.api).oauth2_permission_scope).id])
+      azuread_application.app_gateway.display_name == "claude-test-gateway" &&
+      azuread_application.app_gateway.sign_in_audience == "AzureADMyOrg" &&
+      one(azuread_application.app_gateway.api).requested_access_token_version == 2 &&
+      one(one(azuread_application.app_gateway.api).oauth2_permission_scope).value == "access_as_user" &&
+      one(one(azuread_application.app_gateway.api).oauth2_permission_scope).type == "User" &&
+      one(one(azuread_application.app_gateway.api).oauth2_permission_scope).enabled &&
+      length(azuread_application.app_gateway.password) == 0 &&
+      azuread_application_identifier_uri.gateway.identifier_uri == "api://${azuread_application.app_gateway.client_id}" &&
+      azuread_application_identifier_uri.gateway.application_id == azuread_application.app_gateway.id &&
+      azuread_application_pre_authorized.app_auth_azure_cli.application_id == azuread_application.app_gateway.id &&
+      azuread_application_pre_authorized.app_auth_azure_cli.permission_ids == toset([one(one(azuread_application.app_gateway.api).oauth2_permission_scope).id])
     )
     error_message = "Create a single-tenant gateway API registration with v2 tokens, an exposed delegated scope, Azure CLI preauthorization, and no secret."
   }
 
   assert {
     condition = (
-      azuread_service_principal.gateway.client_id == azuread_application.gateway.client_id &&
+      azuread_service_principal.gateway.client_id == azuread_application.app_gateway.client_id &&
       azuread_service_principal.gateway.app_role_assignment_required &&
-      one(azuread_application.gateway.app_role).value == "Claude.Standard" &&
-      one(azuread_application.gateway.app_role).allowed_member_types == toset(["User", "Application"]) &&
-      azuread_app_role_assignment.gateway["88888888-8888-8888-8888-888888888888"].app_role_id == one(azuread_application.gateway.app_role).id &&
-      azuread_app_role_assignment.gateway["88888888-8888-8888-8888-888888888888"].resource_object_id == azuread_service_principal.gateway.object_id &&
-      azuread_app_role_assignment.gateway["88888888-8888-8888-8888-888888888888"].principal_object_id == "88888888-8888-8888-8888-888888888888" &&
-      output.gateway_application_client_id == azuread_application.gateway.client_id &&
+      one(azuread_application.app_gateway.app_role).value == "Claude.Standard" &&
+      one(azuread_application.app_gateway.app_role).allowed_member_types == toset(["User", "Application"]) &&
+      azuread_app_role_assignment.gateway["99999999-9999-9999-9999-999999999999"].app_role_id == one(azuread_application.app_gateway.app_role).id &&
+      azuread_app_role_assignment.gateway["99999999-9999-9999-9999-999999999999"].resource_object_id == azuread_service_principal.gateway.object_id &&
+      azuread_app_role_assignment.gateway["99999999-9999-9999-9999-999999999999"].principal_object_id == "99999999-9999-9999-9999-999999999999" &&
+      output.gateway_application_client_id == azuread_application.app_gateway.client_id &&
       output.gateway_enterprise_application_object_id == azuread_service_principal.gateway.object_id
     )
     error_message = "Create the enterprise application, require assignment, and grant the gateway app role to the configured principals."
@@ -467,10 +466,10 @@ run "token_governance_uses_caller_identity_and_message_operation" {
 
   assert {
     condition = (
-      strcontains(azurerm_api_management_api_policy.claude.xml_content, "tokens-per-minute=\"120000\" token-quota=\"9000000\" token-quota-period=\"Monthly\"") &&
-      strcontains(azurerm_api_management_api_policy.claude.xml_content, "remaining-quota-tokens-header-name=\"x-token-quota-remaining\"") &&
-      can(regex("(?s)context.Operation.Id == \"messages\".*<llm-token-limit.*<llm-emit-token-metric namespace=\"claudecode\">.*name=\"UserId\".*name=\"Model\".*</when>", azurerm_api_management_api_policy.claude.xml_content)) &&
-      length(regexall("counter-key='@\\(\\(string\\)context.Variables\\[\"caller-id\"\\]\\)'", azurerm_api_management_api_policy.claude.xml_content)) == 2
+      strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "tokens-per-minute=\"120000\" token-quota=\"9000000\" token-quota-period=\"Monthly\"") &&
+      strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "remaining-quota-tokens-header-name=\"x-token-quota-remaining\"") &&
+      can(regex("(?s)context.Operation.Id == \"messages\".*<llm-token-limit.*<llm-emit-token-metric namespace=\"claudecode\">.*name=\"UserId\".*name=\"Model\".*</when>", azurerm_api_management_api_policy.apim_policy.xml_content)) &&
+      length(regexall("counter-key='@\\(\\(string\\)context.Variables\\[\"caller-id\"\\]\\)'", azurerm_api_management_api_policy.apim_policy.xml_content)) == 2
     )
     error_message = "Meter and limit Messages tokens per original caller, not the shared backend identity or the count_tokens response."
   }
@@ -480,16 +479,16 @@ run "assign_group_ids_without_snapshotting_members" {
   command = apply
 
   variables {
-    allowed_principal_object_ids = ["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]
-    allowed_group_names          = ["Claude Developers"]
+    allowed_user_emails = []
+    allowed_group_names = ["Claude Developers"]
   }
 
   assert {
     condition = (
       toset(keys(azuread_app_role_assignment.gateway)) == toset(["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]) &&
-      !strcontains(azurerm_api_management_api_policy.claude.xml_content, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb") &&
-      !strcontains(azurerm_api_management_api_policy.claude.xml_content, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa") &&
-      strcontains(azurerm_api_management_api_policy.claude.xml_content, "Claims.ContainsKey(\"roles\")")
+      !strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb") &&
+      !strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa") &&
+      strcontains(azurerm_api_management_api_policy.apim_policy.xml_content, "Claims.ContainsKey(\"roles\")")
     )
     error_message = "Assign groups directly to the enterprise application; APIM must authorize the issued role, not a stale member snapshot."
   }
@@ -499,9 +498,8 @@ run "deduplicate_mixed_principals" {
   command = apply
 
   variables {
-    allowed_principal_object_ids = ["99999999-9999-9999-9999-999999999999"]
-    allowed_user_emails          = ["developer@example.com", " Developer@Example.com "]
-    allowed_group_names          = ["Claude Developers"]
+    allowed_user_emails = ["developer@example.com", " Developer@Example.com "]
+    allowed_group_names = ["Claude Developers"]
   }
 
   assert {
@@ -516,17 +514,16 @@ run "deduplicate_mixed_principals" {
   }
 }
 
-run "custom_resource_group" {
+run "standard_v2_capacity" {
   command = plan
 
   variables {
-    resource_group_name = "custom-new-rg"
-    apim_sku_name       = "StandardV2_10"
+    apim_sku_name = "StandardV2_10"
   }
 
   assert {
-    condition     = azurerm_resource_group.this.name == "custom-new-rg" && azurerm_api_management.this.sku_name == "StandardV2_10"
-    error_message = "Preserve configurable resource group naming and Standard v2 capacity."
+    condition     = azurerm_resource_group.rg.name == "claude-test-rg" && azurerm_api_management.apim.sku_name == "StandardV2_10"
+    error_message = "Preserve prefix-based resource group naming and configurable Standard v2 capacity."
   }
 }
 
@@ -549,9 +546,10 @@ run "reject_no_models" {
 run "reject_no_authorized_users" {
   command = plan
   variables {
-    allowed_principal_object_ids = []
+    allowed_user_emails = []
+    allowed_group_names = []
   }
-  expect_failures = [azurerm_api_management_api.claude]
+  expect_failures = [azurerm_api_management_api.apim_api]
 }
 
 run "reject_gpt_model" {

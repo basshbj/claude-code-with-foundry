@@ -133,7 +133,7 @@ variable "claude_industry" {
 variable "allowed_user_emails" {
   description = "Email addresses (Entra mail attribute) of users assigned the gateway app role plus Foundry inference and telemetry read access."
   type        = set(string)
-  default     = []
+  default     = ["developer@example.com"]
 
   validation {
     condition = alltrue([
