@@ -1,3 +1,7 @@
+# --------
+# Identity
+# --------
+
 data "azuread_client_config" "current" {}
 
 data "azuread_user" "allowed" {
@@ -11,20 +15,24 @@ data "azuread_group" "allowed" {
   security_enabled = true
 }
 
+data "azuread_application" "azure_cli" {
+  display_name = "Microsoft Azure CLI"
+}
+
 locals {
   gateway_scope_id   = uuidv5("dns", "${var.tenant_id}.${var.name_prefix}.gateway.access_as_user")
   gateway_role_id    = uuidv5("dns", "${var.tenant_id}.${var.name_prefix}.gateway.Claude.Standard")
   gateway_role_value = "Claude.Standard"
 
   allowed_principal_ids = toset(concat(
-    [for id in var.allowed_principal_object_ids : lower(id)],
     [for user in data.azuread_user.allowed : lower(user.object_id)],
     [for group in data.azuread_group.allowed : lower(group.object_id)],
   ))
 
 }
 
-resource "azuread_application" "gateway" {
+# Entra ID App Registration
+resource "azuread_application" "app_gateway" {
   display_name     = "${var.name_prefix}-gateway"
   sign_in_audience = "AzureADMyOrg"
   owners           = [data.azuread_client_config.current.object_id]
@@ -59,22 +67,22 @@ resource "azuread_application" "gateway" {
 }
 
 resource "azuread_application_identifier_uri" "gateway" {
-  application_id = azuread_application.gateway.id
-  identifier_uri = "api://${azuread_application.gateway.client_id}"
+  application_id = azuread_application.app_gateway.id
+  identifier_uri = "api://${azuread_application.app_gateway.client_id}"
 }
 
 resource "azuread_service_principal" "gateway" {
-  client_id                    = azuread_application.gateway.client_id
+  client_id                    = azuread_application.app_gateway.client_id
   app_role_assignment_required = true
   owners                       = [data.azuread_client_config.current.object_id]
 }
 
-resource "azuread_application_pre_authorized" "azure_cli" {
-  application_id = azuread_application.gateway.id
-  # Microsoft's public Azure CLI client; no client registration or secret is needed.
-  authorized_client_id = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
+resource "azuread_application_pre_authorized" "app_auth_azure_cli" {
+  application_id = azuread_application.app_gateway.id
+  authorized_client_id = data.azuread_application.azure_cli.client_id
   permission_ids       = [local.gateway_scope_id]
 }
+
 
 resource "azuread_app_role_assignment" "gateway" {
   for_each = local.allowed_principal_ids
@@ -84,26 +92,28 @@ resource "azuread_app_role_assignment" "gateway" {
   resource_object_id  = azuread_service_principal.gateway.object_id
 }
 
+# Role - Cognitive Services User for APIM
 resource "azurerm_role_assignment" "apim_inference" {
-  scope                = azurerm_cognitive_account.this.id
+  scope                = azurerm_cognitive_account.foundry.id
   role_definition_name = "Cognitive Services User"
-  principal_id         = azurerm_api_management.this.identity[0].principal_id
+  principal_id         = azurerm_api_management.apim.identity[0].principal_id
   principal_type       = "ServicePrincipal"
 }
 
+# Role - Foundry User for Allowed Users
 resource "azurerm_role_assignment" "foundry_user" {
   for_each = local.allowed_principal_ids
 
-  scope = azurerm_cognitive_account.this.id
-  # Stable ID works with both the former "Azure AI User" and current "Foundry User" label.
-  role_definition_id = "/subscriptions/${var.subscription_id}/providers/Microsoft.Authorization/roleDefinitions/53ca6127-db72-4b80-b1b0-d745d6d5456d"
+  scope = azurerm_cognitive_account.foundry.id
+  role_definition_name = "Foundry User"
   principal_id       = each.value
 }
 
+# Role - Cognitive Services User for Allowed Users
 resource "azurerm_role_assignment" "cognitive_services_user" {
   for_each = local.allowed_principal_ids
 
-  scope                = azurerm_cognitive_account.this.id
+  scope                = azurerm_cognitive_account.foundry.id
   role_definition_name = "Cognitive Services User"
   principal_id         = each.value
 }

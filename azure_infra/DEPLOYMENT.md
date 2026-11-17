@@ -40,7 +40,6 @@ Don't overwrite an existing parameter file without reviewing it. Edit the [examp
 | `claude_country_code`, `claude_industry` | Actual country and industry for the Marketplace attestation |
 | `allowed_user_emails` | Existing users resolved by their Entra `mail` attribute, not UPN or aliases |
 | `allowed_group_names` | Exact unique names of existing Entra security groups |
-| `allowed_principal_object_ids` | Optional user, security group, or service-principal IDs assigned the gateway app role |
 | `requests_per_minute` | Approximate per-caller APIM request limit, not a billing cap |
 | `tokens_per_minute` | Approximate per-caller Messages token rate across models (default 50,000) |
 | `monthly_token_quota` | Approximate per-caller Messages token quota per UTC calendar month (default 5,000,000) |

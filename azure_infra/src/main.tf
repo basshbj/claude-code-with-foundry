@@ -1,17 +1,23 @@
+# --------
+# MAIN
+# --------
+
 locals {
   model_names = toset([for model in var.models : lower(trimspace(model))])
 }
 
-resource "azurerm_resource_group" "this" {
-  name     = coalesce(var.resource_group_name, "${var.name_prefix}-rg")
+# Resource Group
+resource "azurerm_resource_group" "rg" {
+  name     = "${var.name_prefix}-rg"
   location = var.location
   tags     = var.tags
 }
 
-resource "azurerm_api_management" "this" {
+# API Management
+resource "azurerm_api_management" "apim" {
   name                          = "${var.name_prefix}-apim"
-  resource_group_name           = azurerm_resource_group.this.name
-  location                      = azurerm_resource_group.this.location
+  resource_group_name           = azurerm_resource_group.rg.name
+  location                      = azurerm_resource_group.rg.location
   publisher_name                = var.publisher_name
   publisher_email               = var.publisher_email
   sku_name                      = var.apim_sku_name
@@ -24,10 +30,11 @@ resource "azurerm_api_management" "this" {
   }
 }
 
-resource "azurerm_cognitive_account" "this" {
+# Microsoft Foundry - Account
+resource "azurerm_cognitive_account" "foundry" {
   name                          = "${var.name_prefix}-foundry"
-  resource_group_name           = azurerm_resource_group.this.name
-  location                      = azurerm_resource_group.this.location
+  resource_group_name           = azurerm_resource_group.rg.name
+  location                      = azurerm_resource_group.rg.location
   kind                          = "AIServices"
   sku_name                      = "S0"
   custom_subdomain_name         = "${var.name_prefix}-foundry"
@@ -46,10 +53,11 @@ resource "azurerm_cognitive_account" "this" {
   }
 }
 
-resource "azurerm_cognitive_account_project" "this" {
+# Microsoft Foundry - Project
+resource "azurerm_cognitive_account_project" "foundry_prj" {
   name                 = "${var.name_prefix}-project"
-  cognitive_account_id = azurerm_cognitive_account.this.id
-  location             = azurerm_resource_group.this.location
+  cognitive_account_id = azurerm_cognitive_account.foundry.id
+  location             = azurerm_resource_group.rg.location
   display_name         = "Claude Code"
   description          = "Claude Code models and observability."
   tags                 = var.tags
@@ -59,16 +67,17 @@ resource "azurerm_cognitive_account_project" "this" {
   }
 }
 
+# Microsoft Foundry - Claude model deployments
 resource "azapi_resource" "claude" {
   for_each = local.model_names
 
   type      = "Microsoft.CognitiveServices/accounts/deployments@2025-10-01-preview"
   name      = each.key
-  parent_id = azurerm_cognitive_account.this.id
+  parent_id = azurerm_cognitive_account.foundry.id
   # modelProviderData is required for Claude but absent from the published ARM schema.
   schema_validation_enabled = false
   # Foundry permits only one deployment update per account at a time.
-  locks = [azurerm_cognitive_account.this.id]
+  locks = [azurerm_cognitive_account.foundry.id]
 
   body = {
     sku = {
@@ -90,22 +99,36 @@ resource "azapi_resource" "claude" {
     }
   }
 
-  depends_on = [azurerm_cognitive_account_project.this]
+  depends_on = [azurerm_cognitive_account_project.foundry_prj]
 }
 
-resource "azurerm_log_analytics_workspace" "this" {
+# Log Analytics workspace
+resource "azurerm_log_analytics_workspace" "logana" {
   name                = "${var.name_prefix}-logs"
-  resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
   sku                 = "PerGB2018"
   retention_in_days   = var.log_retention_days
   tags                = var.tags
 }
 
-resource "azurerm_monitor_diagnostic_setting" "apim" {
+# Application Insights
+resource "azurerm_application_insights" "app_insights" {
+  name                         = "${var.name_prefix}-insights"
+  resource_group_name          = azurerm_resource_group.rg.name
+  location                     = azurerm_resource_group.rg.location
+  application_type             = "web"
+  workspace_id                 = azurerm_log_analytics_workspace.logana.id
+  sampling_percentage          = 100
+  local_authentication_enabled = false
+  tags                         = var.tags
+}
+
+# API Management diagnostics
+resource "azurerm_monitor_diagnostic_setting" "apim_diagnostics" {
   name                           = "platform-metrics"
-  target_resource_id             = azurerm_api_management.this.id
-  log_analytics_workspace_id     = azurerm_log_analytics_workspace.this.id
+  target_resource_id             = azurerm_api_management.apim.id
+  log_analytics_workspace_id     = azurerm_log_analytics_workspace.logana.id
   log_analytics_destination_type = "Dedicated"
 
   enabled_log {
@@ -117,10 +140,11 @@ resource "azurerm_monitor_diagnostic_setting" "apim" {
   }
 }
 
-resource "azurerm_monitor_diagnostic_setting" "foundry" {
+# Microsoft Foundry diagnostics
+resource "azurerm_monitor_diagnostic_setting" "foundry_diagnostics" {
   name                       = "platform-metrics"
-  target_resource_id         = azurerm_cognitive_account.this.id
-  log_analytics_workspace_id = azurerm_log_analytics_workspace.this.id
+  target_resource_id         = azurerm_cognitive_account.foundry.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.logana.id
 
   enabled_log {
     category_group = "allLogs"

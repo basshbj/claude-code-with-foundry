@@ -1,17 +1,12 @@
-resource "azurerm_application_insights" "this" {
-  name                         = "${var.name_prefix}-insights"
-  resource_group_name          = azurerm_resource_group.this.name
-  location                     = azurerm_resource_group.this.location
-  application_type             = "web"
-  workspace_id                 = azurerm_log_analytics_workspace.this.id
-  sampling_percentage          = 100
-  local_authentication_enabled = false
-  tags                         = var.tags
-}
+# ----------
+# Monitoring
+# ----------
 
+
+# Enable custom metrics on Application Insights
 resource "azapi_update_resource" "insights_metric_dimensions" {
   type        = "Microsoft.Insights/components@2020-02-02"
-  resource_id = azurerm_application_insights.this.id
+  resource_id = azurerm_application_insights.app_insights.id
 
   body = {
     properties = {
@@ -20,56 +15,60 @@ resource "azapi_update_resource" "insights_metric_dimensions" {
   }
 
   lifecycle {
-    replace_triggered_by = [azurerm_application_insights.this]
+    replace_triggered_by = [azurerm_application_insights.app_insights]
   }
 }
 
+# Role - Monitoring Metrics Publisher for APIM and Foundry
 resource "azurerm_role_assignment" "telemetry_publisher" {
   for_each = {
-    apim    = azurerm_api_management.this.identity[0].principal_id
-    foundry = azurerm_cognitive_account.this.identity[0].principal_id
-    project = azurerm_cognitive_account_project.this.identity[0].principal_id
+    apim    = azurerm_api_management.apim.identity[0].principal_id
+    foundry = azurerm_cognitive_account.foundry.identity[0].principal_id
+    project = azurerm_cognitive_account_project.foundry_prj.identity[0].principal_id
   }
 
-  scope                = azurerm_application_insights.this.id
+  scope                = azurerm_application_insights.app_insights.id
   role_definition_name = "Monitoring Metrics Publisher"
   principal_id         = each.value
   principal_type       = "ServicePrincipal"
 }
 
+# Role - Log Analytics Reader for allowed users on Application Insights
 resource "azurerm_role_assignment" "insights_reader" {
   for_each = local.allowed_principal_ids
 
-  scope                = azurerm_application_insights.this.id
+  scope                = azurerm_application_insights.app_insights.id
   role_definition_name = "Log Analytics Reader"
   principal_id         = each.value
 }
 
+# Role - Log Analytics Reader for allowed users on Log Analytics workspace
 resource "azurerm_role_assignment" "logs_reader" {
   for_each = local.allowed_principal_ids
 
-  scope                = azurerm_log_analytics_workspace.this.id
+  scope                = azurerm_log_analytics_workspace.logana.id
   role_definition_name = "Log Analytics Reader"
   principal_id         = each.value
 }
 
+# Application Insights connection for Foundry project
 resource "azapi_resource" "project_insights" {
   type      = "Microsoft.CognitiveServices/accounts/projects/connections@2025-09-01"
   name      = "application-insights"
-  parent_id = azurerm_cognitive_account_project.this.id
+  parent_id = azurerm_cognitive_account_project.foundry_prj.id
   # ProjectManagedIdentity is supported by Foundry but absent from the ARM schema.
   schema_validation_enabled = false
 
   body = {
     properties = {
       category      = "AppInsights"
-      target        = azurerm_application_insights.this.id
+      target        = azurerm_application_insights.app_insights.id
       authType      = "ProjectManagedIdentity"
       isSharedToAll = false
       metadata = {
         ApiType                             = "Azure"
-        ResourceId                          = azurerm_application_insights.this.id
-        ApplicationInsightsConnectionString = azurerm_application_insights.this.connection_string
+        ResourceId                          = azurerm_application_insights.app_insights.id
+        ApplicationInsightsConnectionString = azurerm_application_insights.app_insights.connection_string
       }
     }
   }
@@ -77,28 +76,30 @@ resource "azapi_resource" "project_insights" {
   depends_on = [azurerm_role_assignment.telemetry_publisher]
 }
 
+# API Management logger for Application Insights
 resource "azurerm_api_management_logger" "insights" {
   name                = "application-insights"
-  api_management_name = azurerm_api_management.this.name
-  resource_group_name = azurerm_resource_group.this.name
-  resource_id         = azurerm_application_insights.this.id
+  api_management_name = azurerm_api_management.apim.name
+  resource_group_name = azurerm_resource_group.rg.name
+  resource_id         = azurerm_application_insights.app_insights.id
 
   application_insights {
-    connection_string  = azurerm_application_insights.this.connection_string
+    connection_string  = azurerm_application_insights.app_insights.connection_string
     identity_client_id = "SystemAssigned"
   }
 
   depends_on = [azurerm_role_assignment.telemetry_publisher]
 }
 
+# API Management diagnostics for all APIs
 resource "azurerm_api_management_diagnostic" "all_apis" {
   for_each = {
     applicationinsights = azurerm_api_management_logger.insights.id
   }
 
   identifier               = each.key
-  api_management_name      = azurerm_api_management.this.name
-  resource_group_name      = azurerm_resource_group.this.name
+  api_management_name      = azurerm_api_management.apim.name
+  resource_group_name      = azurerm_resource_group.rg.name
   api_management_logger_id = each.value
 
   sampling_percentage       = 100
@@ -126,6 +127,7 @@ resource "azurerm_api_management_diagnostic" "all_apis" {
 }
 
 # The installed AzureRM provider does not expose the diagnostic's metrics flag.
+# Update the Application Insights diagnostic to enable metrics.
 resource "azapi_update_resource" "apim_insights_metrics" {
   type        = "Microsoft.ApiManagement/service/diagnostics@2024-05-01"
   resource_id = azurerm_api_management_diagnostic.all_apis["applicationinsights"].id
@@ -147,11 +149,11 @@ resource "azapi_update_resource" "apim_insights_metrics" {
 # Update it after the export is enabled rather than trying to create it again.
 resource "azapi_update_resource" "azuremonitor" {
   type        = "Microsoft.ApiManagement/service/diagnostics@2024-05-01"
-  resource_id = "${azurerm_api_management.this.id}/diagnostics/azuremonitor"
+  resource_id = "${azurerm_api_management.apim.id}/diagnostics/azuremonitor"
 
   body = {
     properties = {
-      loggerId    = "${azurerm_api_management.this.id}/loggers/azuremonitor"
+      loggerId    = "${azurerm_api_management.apim.id}/loggers/azuremonitor"
       alwaysLog   = "allErrors"
       logClientIp = false
       verbosity   = "verbose"

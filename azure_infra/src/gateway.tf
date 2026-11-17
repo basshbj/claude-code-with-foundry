@@ -1,15 +1,21 @@
-resource "azurerm_api_management_backend" "claude" {
+# -------------
+# APIM - Set up
+# -------------
+
+# API Backend
+resource "azurerm_api_management_backend" "apim_backend" {
   name                = "foundry-claude"
-  resource_group_name = azurerm_resource_group.this.name
-  api_management_name = azurerm_api_management.this.name
+  resource_group_name = azurerm_resource_group.rg.name
+  api_management_name = azurerm_api_management.apim.name
   protocol            = "http"
-  url                 = azurerm_api_management_api.claude.service_url
+  url                 = azurerm_api_management_api.apim_api.service_url
 }
 
-resource "azurerm_api_management_api" "claude" {
+# Claude API
+resource "azurerm_api_management_api" "apim_api" {
   name                  = "claude-messages"
-  resource_group_name   = azurerm_resource_group.this.name
-  api_management_name   = azurerm_api_management.this.name
+  resource_group_name   = azurerm_resource_group.rg.name
+  api_management_name   = azurerm_api_management.apim.name
   revision              = "1"
   display_name          = "Claude Messages API"
   path                  = "anthropic"
@@ -19,31 +25,43 @@ resource "azurerm_api_management_api" "claude" {
 
   lifecycle {
     precondition {
-      condition     = length(var.allowed_user_emails) + length(var.allowed_group_names) + length(var.allowed_principal_object_ids) > 0
+      condition     = length(var.allowed_user_emails) + length(var.allowed_group_names) > 0
       error_message = "Authorize at least one user email, security group name, or principal object ID."
     }
   }
 }
 
-resource "azurerm_api_management_api_operation" "claude" {
+# Claude API - Methods
+resource "azurerm_api_management_api_operation" "apim_api_operation" {
   for_each = {
-    messages     = "/v1/messages"
-    count-tokens = "/v1/messages/count_tokens"
+    messages = {
+      path   = "/v1/messages"
+      method = "POST"
+    }
+    count-tokens = {
+      path   = "/v1/messages/count_tokens"
+      method = "POST"
+    }
+    models = {
+      path   = "/v1/models"
+      method = "GET"
+    }
   }
 
   operation_id        = each.key
-  api_name            = azurerm_api_management_api.claude.name
-  api_management_name = azurerm_api_management.this.name
-  resource_group_name = azurerm_resource_group.this.name
+  api_name            = azurerm_api_management_api.apim_api.name
+  api_management_name = azurerm_api_management.apim.name
+  resource_group_name = azurerm_resource_group.rg.name
   display_name        = each.key
-  method              = "POST"
-  url_template        = each.value
+  method              = each.value.method
+  url_template        = each.value.path
 }
 
-resource "azurerm_api_management_api_policy" "claude" {
-  api_name            = azurerm_api_management_api.claude.name
-  api_management_name = azurerm_api_management.this.name
-  resource_group_name = azurerm_resource_group.this.name
+# Claude API Policy
+resource "azurerm_api_management_api_policy" "apim_policy" {
+  api_name            = azurerm_api_management_api.apim_api.name
+  api_management_name = azurerm_api_management.apim.name
+  resource_group_name = azurerm_resource_group.rg.name
   xml_content = templatefile("${path.module}/policies/claude.xml.tftpl", {
     tenant_id           = var.tenant_id
     gateway_client_id   = azuread_application.gateway.client_id
@@ -59,7 +77,7 @@ resource "azurerm_api_management_api_policy" "claude" {
     azuread_application_identifier_uri.gateway,
     azuread_application_pre_authorized.azure_cli,
     azuread_app_role_assignment.gateway,
-    azurerm_api_management_api_operation.claude,
+    azurerm_api_management_api_operation.apim_api_operation,
     azurerm_role_assignment.apim_inference,
     azurerm_role_assignment.foundry_user,
     azurerm_role_assignment.cognitive_services_user,

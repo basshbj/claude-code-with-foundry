@@ -23,12 +23,6 @@ variable "location" {
   type        = string
 }
 
-variable "resource_group_name" {
-  description = "Name of the NEW resource group. Null derives <name_prefix>-rg; existing groups are not adopted."
-  type        = string
-  default     = null
-}
-
 variable "tags" {
   description = "Tags applied to Azure resources."
   type        = map(string)
@@ -133,21 +127,6 @@ variable "claude_industry" {
   validation {
     condition     = contains(["technology", "finance", "healthcare", "education", "retail", "manufacturing", "government", "media", "other"], var.claude_industry)
     error_message = "Choose technology, finance, healthcare, education, retail, manufacturing, government, media, or other."
-  }
-}
-
-variable "allowed_principal_object_ids" {
-  description = "Optional Entra user, security group, or service-principal IDs assigned the gateway app role plus Foundry and telemetry access."
-  type        = set(string)
-  default     = []
-
-  validation {
-    condition = alltrue([
-      for id in var.allowed_principal_object_ids :
-      can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", id)) &&
-      id != "00000000-0000-0000-0000-000000000000"
-    ])
-    error_message = "Each supplied object ID must be a nonzero Entra user, security group, or service-principal GUID."
   }
 }
 
