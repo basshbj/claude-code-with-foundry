@@ -64,9 +64,12 @@ foreach ($template in $templates.GetEnumerator()) {
     $generatedFiles[$template.Value] = $content
 }
 
+$outputDirectory = Join-Path $PSScriptRoot 'output'
+New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
+
 $encoding = New-Object System.Text.UTF8Encoding($false)
 foreach ($file in $generatedFiles.GetEnumerator()) {
-    $destinationPath = Join-Path $PSScriptRoot $file.Key
+    $destinationPath = Join-Path $outputDirectory $file.Key
     [System.IO.File]::WriteAllText($destinationPath, $file.Value, $encoding)
     Write-Host "Created '$destinationPath'."
 }

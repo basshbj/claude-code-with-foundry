@@ -72,24 +72,24 @@ cd ..
 .\claude_config\prepare_claude_config.ps1
 ```
 
-The following files will be created:
+The script creates the `.\claude_config\output` folder if needed and saves the following files there. Rerunning the script overwrites the generated files in that folder.
 
 | File Name | Description |
 | - | - |
-| `.\claude_config\claude_desktop_config.json` | Claude Desktop config file. |
-| `.\claude_config\settings.json` | Claude Code config file. |
-| `get_entra_id_token.ps1` | Helper script for Claude Code & Desktop retrieve the Entra ID auth token |
+| `.\claude_config\output\claude_desktop_config.json` | Claude Desktop config file. |
+| `.\claude_config\output\settings.json` | Claude Code config file. |
+| `.\claude_config\output\get_entra_id_token.ps1` | Helper script for Claude Code & Desktop retrieve the Entra ID auth token |
 
 ### Configure Claude Code
-1. Copy `.\claude_config\settings.json` to `C:\Users\%USERPROFILE%\.claude`
-2. Copy `.\claude_config\get_entra_id_token.ps1` to `C:\Users\%USERPROFILE%\.claude`
+1. Copy `.\claude_config\output\settings.json` to `C:\Users\%USERPROFILE%\.claude`
+2. Copy `.\claude_config\output\get_entra_id_token.ps1` to `C:\Users\%USERPROFILE%\.claude`
 3. Open Powershell and run `claude` and verify it is working
 
 ### Configure Claude Desktop
 1. Open Claude Desktop, then select Help > Troubleshooting > Enable Developer Mode
 2. Select Developer > Configure third-party inference
 3. Select `Default` in the right-top corner. And select `Import configuration`
-4. Select `.\claude_config\claude_desktop_config.json`
+4. Select `.\claude_config\output\claude_desktop_config.json`
 5. Restart Claude Desktop and verify it is working
 
 ## Verify inference and logging
