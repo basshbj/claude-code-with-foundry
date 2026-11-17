@@ -1,0 +1,46 @@
+{
+  "$schemaVersion": 2,
+  "inference": {
+    "provider": "gateway",
+    "baseUrl": "https://claude-demo-3-apim.azure-api.net/anthropic",
+    "credential": {
+      "kind": "helper-script",
+      "command": "C:\\Users\\baalmahamid\\.claude\\get_entra_id_token.ps1",
+      "authScheme": "x-api-key"
+    }
+  },
+  "models": {
+    "list": [
+      {
+        "name": "claude-opus-5-5",
+        "labelOverride": "Claude Opus 5",
+        "anthropicFamilyTier": "opus"
+      },
+      {
+        "name": "claude-haiku-4-5",
+        "labelOverride": "Claude Haiku 4.5",
+        "anthropicFamilyTier": "haiku"
+      },
+      {
+        "name": "claude-sonnet-5",
+        "labelOverride": "Claude Sonnet 5",
+        "anthropicFamilyTier": "sonnet"
+      },
+      {
+        "name": "claude-opus-5",
+        "labelOverride": "Opus 5",
+        "anthropicFamilyTier": "opus"
+      },
+      {
+        "name": "claude-sonnet-5-5",
+        "labelOverride": "Claude Sonnet 5.5",
+        "anthropicFamilyTier": "sonnet"
+      },
+      {
+        "name": "claude-haiku-5-5",
+        "labelOverride": "Claude Haiku 5.5",
+        "anthropicFamilyTier": "haiku"
+      }
+    ]
+  }
+}

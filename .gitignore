@@ -1,5 +1,6 @@
 # Local .terraform directories
 .terraform/
+test/
 
 # .tfstate files
 *.tfstate
@@ -32,6 +33,7 @@ override.tf.json
 # Include tfplan files to ignore the plan output of command: terraform plan -out=tfplan
 # example: *tfplan*
 *.tfplan
+*outputs.json
 
 # Ignore CLI configuration files
 .terraformrc

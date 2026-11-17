@@ -1,0 +1,42 @@
+# Azure environment
+subscription_id = "REPLACE_WITH_SUBSCRIPTION_ID"
+tenant_id       = "REPLACE_WITH_TENANT_ID"
+name_prefix     = "claude-demo-unique"
+location        = "eastus2"
+
+# APIM configuration and Rate Limits per user
+apim_sku_name       = "StandardV2_1"
+publisher_name      = "Example organization"
+publisher_email     = "azure-admin@example.com"
+requests_per_minute = 60
+tokens_per_minute   = 50000
+monthly_token_quota = 5000000
+log_retention_days  = 30
+
+# Authorize existing users by email and/or security groups by exact display name.
+allowed_user_emails = ["developer@example.com"]
+allowed_group_names = []
+
+# Marketplace configuration for Claude deployment
+claude_organization_name = "REPLACE_WITH_COMPANY_NAME"
+claude_country_code      = "JP"
+claude_industry          = "technology"
+
+# Models to deploy
+models = [
+  "claude-opus-5-5",
+  "claude-haiku-4-5",
+  "claude-sonnet-5",
+  "claude-opus-5",
+  "claude-sonnet-5-5",
+  "claude-haiku-5-5"
+]
+
+# Deployment Type and Quota (TPM) per model
+model_deployment_sku_name = "GlobalStandard"
+model_deployment_capacity = 1
+
+tags = {
+  environment = "dev"
+  workload    = "claude-foundry"
+}

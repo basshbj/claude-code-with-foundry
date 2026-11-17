@@ -1,0 +1,23 @@
+{
+  "apiKeyHelper": "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\__USERNAME__\\.claude\\get_entra_id_token.ps1",
+  "env": {
+    "ANTHROPIC_BASE_URL": "__APIM_BASE_URL__",
+    "AZURE_TENANT_ID": "__TENANT_ID__",
+    "CLAUDE_CODE_USE_FOUNDRY": "0",
+    "CLAUDE_GATEWAY_SCOPE": "api://__GATEWAY_ID__/.default",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5-5",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-5-5"
+  },
+  "model": "sonnet",
+  "availableModels": [
+    "claude-opus-5-5",
+    "claude-haiku-4-5",
+    "claude-sonnet-5",
+    "claude-opus-5",
+    "claude-sonnet-5-5",
+    "claude-haiku-5-5"
+  ],
+  "autoUpdatesChannel": "latest",
+  "theme": "dark"
+}
