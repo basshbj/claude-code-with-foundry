@@ -1,17 +1,12 @@
 # Terraform deployment
 
-Review the [architecture and acceptance checklist](./README.md) first. Commands below use PowerShell. Validation does not deploy resources; applying creates billable Azure resources and accepts Marketplace terms.
-
 ## Prerequisites
 
 - Terraform 1.7 or later (below 2.0)
 - Azure CLI.
 - Install Claude Code CLI or Claude Desktop 
-- Permission to create resources and assign roles, such as Contributor plus Role Based Access Control Administrator at the appropriate scope.
-- Entra permissions to create/manage the gateway app registration, enterprise application, exposed API scope, Azure CLI preauthorization, and app-role assignments. Azure subscription Contributor/Owner alone does **not** grant these directory permissions. For interactive Terraform, use an approved directory administrator such as Application Administrator. For automation, arrange admin-approved Graph application-management permissions (for example `Application.ReadWrite.All`, or an approved owned-application setup) plus `AppRoleAssignment.ReadWrite.All` and `Application.Read.All`. Terraform assigns its executing principal as app/service-principal owner; it never creates a client secret.
-- Directory read access when resolving email addresses or group names: automated lookups require `User.Read.All` and/or `Group.Read.All` (or applicable broader permissions). Raw object IDs don't require the previous directory-object classification or group-member expansion.
-- Group-based enterprise-application assignment requires appropriate Entra licensing. Only direct group members inherit app roles; nested group membership is not supported.
-
+- Azure Roles: `Contributor` & `Role Based Access Control Administrator`
+- Entra ID Roles: `Application Developer` 
 
 ## Configure
 
@@ -94,33 +89,25 @@ The script creates the `.\claude_config\output` folder if needed and saves the f
 
 ## Verify inference and logging
 
-Once Claude Code and Claude Desktop are set up, use the following sample queries on Log Analytics to monitor Claude usage
+Once Claude Code and Claude Desktop are set up, use the following sample queries to verify the logs.
 
-After allowing ingestion delay, query the workspace:
-
-```kusto
-# Get APIM logs
-ApiManagementGatewayLogs
-| where TimeGenerated > ago(1h)
-| project TimeGenerated, ApiId, OperationId, ResponseCode, BackendResponseCode, TotalTime, CorrelationId
-| order by TimeGenerated desc
-```
+1. Open Azure Application Insights
+2. Left menu > Monitoring > Logs
 
 ```kusto
 # Get requests to the Cluade API
-AppRequests
-| where TimeGenerated > ago(1h)
-| project TimeGenerated, Name, ResultCode, Success, DurationMs, OperationId
-| order by TimeGenerated desc
+requests
+| where timestamp  > ago(24h)
+| project timestamp, name, resultCode, success, url
 ```
 
 ```kusto
 # Get Total tokes used per model per user
-AppMetrics
-| where TimeGenerated > ago(1d)
-| where Name == "Total Tokens"
-| extend UserId = tostring(Properties["UserId"]), Model = tostring(Properties["Model"])
-| summarize Tokens = sum(Sum) by UserId, Model, bin(TimeGenerated, 1d)
+customMetrics
+| where timestamp > ago(24h)
+| where name == "Total Tokens"
+| extend UserId = tostring(customDimensions["UserId"]), Model = tostring(customDimensions["Model"])
+| summarize Tokens = sum(value) by UserId, Model, bin(timestamp, 1d)
 ```
 
 ## Remove Azure Resources

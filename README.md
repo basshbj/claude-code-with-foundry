@@ -1,6 +1,6 @@
 # Claude Code with Microsoft Foundry
 
-The [Terraform templates](./src) provision Claude models **Hosted on Azure** and expose their native Anthropic API through API Management. See the [deployment guide](./DEPLOYMENT.md) for configuration, migration, and verification.
+The [Terraform templates](./azure_infra) provision Claude models **Hosted on Azure** and expose their native Anthropic API through API Management. See the [deployment guide](./DEPLOYMENT.md) for configuration, and verification.
 
 ## Architecture
 
@@ -19,7 +19,7 @@ flowchart LR
 ```
 
 ### Resources
-
+The following Azure Resources are going to be deployed:
 | Name | Description |
 | - | - |
 | Resource Group | |
@@ -29,7 +29,7 @@ flowchart LR
 | Azure Log Analytics | |
 | Entra ID App Registration | |
 
-Models to be deployed:
+By default, these models are deployed (can be configured in the `terraform.tfvars` file):
 | Deployment/model ID |
 | --- |
 | `claude-opus-5-5` |
@@ -39,31 +39,58 @@ Models to be deployed:
 | `claude-sonnet-5-5` |
 | `claude-haiku-5-5` |
 
-`Foundry User` and `Cognitive Services User` roles are grated on the Foundry resource for configured users/groups, plus `Log Analytics Reader` on Application Insights and Log Analytics.
+Also, `Foundry User` and `Cognitive Services User` and `Log Analytics Reader` roles are grated to the user to be able to access the models on Foundry and monitoring details.
 
 
 ## Authentication
+Azure CLI is used to obtain a short-lived Entra token for the gateway application on behalf of the user.
+Claude Code or Desktop sends this token to APIM, which validates its signature, issuer, expiry, audience, and app role.
+APIM then replaces the user token with its own managed-identity token; Foundry authorizes APIM through the `Cognitive Services User` role and returns the model response.
 
-Claude Code uses **Anthropic gateway mode**, `ANTHROPIC_BASE_URL`, and the [Entra token helper](./client/get-claude-gateway-token.ps1). After `az login`, the helper obtains short-lived tokens for `api://<gateway-client-id>/.default`; Claude Code reruns it every five minutes. Despite Claude Code naming the setting `apiKeyHelper`, its output is an **Entra bearer token, not an API key**. APIM reads only `Authorization: Bearer`, not key headers.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant Claude as Claude Code / Desktop
+    participant Helper as Entra token helper
+    participant CLI as Azure CLI
+    participant Entra as Microsoft Entra ID
+    participant APIM as API Management
+    participant Foundry as Microsoft Foundry
 
-APIM validates the tenant, signature, expiry, and **gateway app audience**, then requires the exact `Claude.Standard` role and a caller object ID before requesting any backend token. This registration requests **v2 access tokens**, whose `aud` is the app's client-ID GUID, not its `api://...` URI. Missing/invalid tokens return 401; a valid gateway token without the required role returns 403. Tokens for the Foundry AI/Cognitive Services audiences are deliberately rejected at the gateway.
+    User->>CLI: az login --tenant TENANT_ID
+    CLI->>Entra: Interactive sign-in and MFA if required
+    Entra-->>CLI: Authenticated user session
 
-APIM replaces the user's bearer token with its own system-assigned managed-identity token for `https://cognitiveservices.azure.com`. Foundry authorizes **APIM**, not the user, for gateway inference. APIM caches and refreshes this backend token. Client identity is captured before replacement for authorization, rate limits, quotas, and metrics. API-key headers are stripped, key-only requests cannot authenticate, and Foundry local authentication remains disabled. No client secrets, callback ports, or APIM subscription keys are used.
+    User->>Claude: Submit a prompt
+    Claude->>Helper: Request gateway credential
+    Helper->>CLI: az account get-access-token<br/>--resource api://GATEWAY_CLIENT_ID
+    Note over CLI,Entra: Reuse a cached token or request a new one
+    opt New gateway token needed
+        CLI->>Entra: Request token for the gateway application
+        Entra->>Entra: Evaluate user / direct-group app-role assignments
+        Entra-->>CLI: User token with aud = gateway client-ID GUID<br/>and roles = Claude.Standard
+    end
+    CLI-->>Helper: Gateway access token
+    Helper-->>Claude: Print token only
+    Claude->>APIM: Anthropic API request with gateway token<br/>Authorization: Bearer or x-api-key
+    APIM->>APIM: Validate signature, issuer, expiry,<br/>gateway audience, and allowed app role
 
-Entra evaluates user/group app-role assignments when issuing tokens; APIM no longer embeds group membership snapshots. Group-based enterprise-application assignment requires appropriate Entra licensing and supports **direct members, not nested groups**. Group membership changes need no Terraform update, but role/consent propagation and already-issued token lifetimes still apply; revocation isn't instantaneous. Changes to the configured assigned users/groups themselves still require Terraform apply.
-
-This implements the article's gateway app registration and managed-identity backend option with one authorization tier (`Claude.Standard`) using the configured limits. It retains the existing `/anthropic` path rather than the article's root path. Optional premium-tier routing, model discovery, and private networking are not enabled. Native `CLAUDE_CODE_USE_FOUNDRY=1` must be removed/disabled because it requests a Foundry token instead of a gateway-app token.
-
-Both services remain publicly reachable, without a VNet or private endpoints. Direct Foundry access by authorized users is possible and bypasses APIM limits/model restrictions. This is not a gateway-only network boundary.
+    APIM->>Foundry: Forward request with Authorization: Bearer<br/>using APIM's managed-identity token
+    Foundry->>Foundry: Authorize APIM via Cognitive Services User
+    Foundry-->>APIM: Claude model response / stream
+    APIM-->>Claude: Forward response / stream
+    Claude-->>User: Display result
+```
 
 ## Observability and data handling
 
-"Collect all" means all supported diagnostic categories and all gateway requests, not prompt/response payload capture. All four APIM request/response body limits are zero, and no headers are selected for logging. Don't add credentials to URLs, policy traces, or prompts. Review inherited policies and any existing per-API diagnostic overrides before rollout.
+This deployment provides centralized monitoring, token usage tracking, and rate limiting through Azure API Management (APIM), Application Insights, and Log Analytics.
 
-Application Insights records APIM requests/dependencies and `claudecode` token metrics dimensioned by `UserId` and `Model`; Log Analytics also receives Azure Monitor gateway logs and Foundry platform logs. Terraform enables custom metrics on the APIM Application Insights diagnostic and the component's preview **With dimensions** option. Connecting a project to Application Insights enables project telemetry where supported, but **does not instrument Claude Code or turn direct Claude Messages calls into Foundry Agent traces**. Additional client-side instrumentation would be required for that. These templates do not enable model payload logging, token-content logging, or agent-content capture.
-
-Token limits/quotas are approximate and local to each gateway/region, not hard billing caps. Streaming counts can be estimated; concurrent calls can temporarily exceed limits. The limits return 429 for token/request rate exhaustion and 403 for monthly token quota exhaustion. The token policy counts prompt/completion tokens, not monetary cost or every cache/reasoning billing category.
-
-100% sampling and dimensional custom metrics increase ingestion cost and can affect APIM performance. Metrics have cardinality limits (currently 100 values per dimension and 1,000 active time series per namespace at APIM); they are not an unlimited per-user billing ledger. Telemetry delivery is asynchronous and best-effort, not an audit guarantee. Budgets and alert rules are not included.
+| Service | Collected telemetry |
+| --- | --- |
+| Application Insights | APIM request and dependency telemetry, plus `claudecode` token usage metrics categorized by `UserId` and `Model`. |
+| Log Analytics | Azure Monitor APIM gateway logs and Microsoft Foundry platform diagnostic logs. |
+| Microsoft Foundry | Project-level telemetry where supported, when connected to Application Insights. |
 
 
