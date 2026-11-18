@@ -1,4 +1,7 @@
-# Terraform deployment
+# Deployment Guide
+
+> [!info] Japanese Guide
+> 日本語での説明はこちらです：[DEPLOYMENT_JP.md](DEPLOYMENT_JP.md)
 
 ## Prerequisites
 
@@ -17,19 +20,14 @@ cd .\azure_infra
 Copy-Item .\terraform.tfvars.example .\terraform.tfvars
 ```
 
-Configure the following parameters in the created `terraform.tfvars` file
+Below are the required parameters to configure in the `terraform.tfvars` file
 
 | Input | Meaning | Example value |
 | --- | --- | --- |
 | `subscription_id`, `tenant_id` | Explicit target subscription and tenant; replace both placeholders | `REPLACE_WITH_SUBSCRIPTION_ID`, `REPLACE_WITH_TENANT_ID` |
 | `name_prefix` | Globally unique prefix for APIM and Foundry hostnames | `claude-demo-unique` |
 | `location` | Region supporting the selected services/models | `eastus2` |
-| `apim_sku_name` | APIM SKU and unit count | `StandardV2_1` |
 | `publisher_name`, `publisher_email` | APIM publisher and operational contact | `Example organization`, `azure-admin@example.com` |
-| `requests_per_minute` | Approximate per-caller APIM request limit, not a billing cap | `60` |
-| `tokens_per_minute` | Approximate per-caller Messages token rate across models | `50000` |
-| `monthly_token_quota` | Approximate per-caller Messages token quota per UTC calendar month | `5000000` |
-| `log_retention_days` | Workspace log retention in days | `30` |
 | `allowed_user_emails` | Existing users resolved by their Entra `mail` attribute, not UPN or aliases | `["developer@example.com"]` |
 | `allowed_group_names` | Exact display names of existing Entra security groups | `[]` |
 | `claude_organization_name` | Actual legal organization accepting the Claude Marketplace terms; replace the placeholder | `REPLACE_WITH_COMPANY_NAME` |
@@ -38,7 +36,6 @@ Configure the following parameters in the created `terraform.tfvars` file
 | `models` | Claude catalog IDs to deploy; the example selects six models | `claude-opus-5-5`, `claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5`, `claude-sonnet-5-5`, `claude-haiku-5-5` |
 | `model_deployment_sku_name` | Deployment type supported by the selected models and region | `GlobalStandard` |
 | `model_deployment_capacity` | Positive integer capacity per model, in model/SKU-specific quota units | `1` |
-| `tags` | Resource tags | `environment = "dev"`, `workload = "claude-foundry"` |
 
 ## Validate and plan
 
