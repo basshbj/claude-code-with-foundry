@@ -52,35 +52,30 @@ sequenceDiagram
     autonumber
     actor User
     participant Claude as Claude Code / Desktop
-    participant Helper as Entra token helper
     participant CLI as Azure CLI
     participant Entra as Microsoft Entra ID
     participant APIM as API Management
     participant Foundry as Microsoft Foundry
 
-    User->>CLI: az login --tenant TENANT_ID
-    CLI->>Entra: Interactive sign-in and MFA if required
+    User->>CLI: Login
+    CLI->>Entra: sign-in and MFA if required
     Entra-->>CLI: Authenticated user session
 
     User->>Claude: Submit a prompt
-    Claude->>Helper: Request gateway credential
-    Helper->>CLI: az account get-access-token<br/>--resource api://GATEWAY_CLIENT_ID
+    Claude->>CLI: Request gateway credential
+    
     Note over CLI,Entra: Reuse a cached token or request a new one
     opt New gateway token needed
         CLI->>Entra: Request token for the gateway application
-        Entra->>Entra: Evaluate user / direct-group app-role assignments
-        Entra-->>CLI: User token with aud = gateway client-ID GUID<br/>and roles = Claude.Standard
+        Entra-->>CLI: Issue Token
     end
-    CLI-->>Helper: Gateway access token
-    Helper-->>Claude: Print token only
-    Claude->>APIM: Anthropic API request with gateway token<br/>Authorization: Bearer or x-api-key
-    APIM->>APIM: Validate signature, issuer, expiry,<br/>gateway audience, and allowed app role
+    CLI-->>Claude: Gateway access token
 
-    APIM->>Foundry: Forward request with Authorization: Bearer<br/>using APIM's managed-identity token
-    Foundry->>Foundry: Authorize APIM via Cognitive Services User
+    Claude->>APIM: Request to Anthropic API
+
+    APIM->>Foundry: Forward request
     Foundry-->>APIM: Claude model response / stream
-    APIM-->>Claude: Forward response / stream
-    Claude-->>User: Display result
+    APIM-->>Claude: Forward response
 ```
 
 ## Observability and data handling
