@@ -1,6 +1,6 @@
 # Claude Code with Microsoft Foundry
 
-> [!info] Japanese Guide
+> [!NOTE] Japanese Guide
 > 日本語での説明はこちらです：[README_JP.md](README_JP.md)
 
 The [Terraform templates](./azure_infra) provision Claude models **Hosted on Azure** and expose their native Anthropic API through API Management. See the [deployment guide](./DEPLOYMENT.md) for configuration, and verification.
