@@ -1,6 +1,6 @@
 # Deployment Guide
 
-> [!info] Japanese Guide
+> [!NOTE] 
 > 日本語での説明はこちらです：[DEPLOYMENT_JP.md](DEPLOYMENT_JP.md)
 
 ## Prerequisites
